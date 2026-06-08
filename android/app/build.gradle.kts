@@ -1,10 +1,14 @@
 import java.util.Properties
 
-// 1. Load the keystore properties at the start
+// 1. Load the keystore properties safely
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(keystorePropertiesFile.inputStream())
+val hasKeystore = keystorePropertiesFile.exists()
+
+if (hasKeystore) {
+    keystorePropertiesFile.inputStream().use { stream ->
+        keystoreProperties.load(stream)
+    }
 }
 
 plugins {
@@ -19,13 +23,15 @@ android {
 
     ndkVersion = flutter.ndkVersion
 
-    // 2. Define the signing configuration using your new key
+    // 2. Conditionally create the release signing config
     signingConfigs {
-        create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = file(keystoreProperties["storeFile"] as String)
-            storePassword = keystoreProperties["storePassword"] as String
+        if (hasKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+            }
         }
     }
 
@@ -48,10 +54,14 @@ android {
 
     buildTypes {
         release {
-            // 3. Apply the release signing configuration here
-            signingConfig = signingConfigs.getByName("release")
+            // 3. Fallback gracefully if key.properties doesn't exist locally
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
+            }
             
-            // Standard optimizations for Play Store
+            // Code optimization switches
             isMinifyEnabled = false
             isShrinkResources = false
             proguardFiles(

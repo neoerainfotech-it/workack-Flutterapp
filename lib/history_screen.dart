@@ -8,6 +8,7 @@ import 'constants.dart';
 import 'api_constants.dart';
 
 // --- DATA MODEL ---
+// --- DATA MODEL ---
 class TimeLog {
   final DateTime checkInTime;
   final DateTime? checkOutTime;
@@ -15,16 +16,16 @@ class TimeLog {
 
   TimeLog({required this.checkInTime, this.checkOutTime, this.breakMinutes = 0});
 
-  // THE FIX: Automatically maps database keys (punch_in / punch_out) 
-  // preventing the app from defaulting everything to DateTime.now()
+  // ✅ FIXED: Null-safe parsing
   factory TimeLog.fromJson(Map<String, dynamic> json) {
     final rawIn = json['check_in_time'] ?? json['punch_in'] ?? json['date'];
     final rawOut = json['check_out_time'] ?? json['punch_out'];
     final rawBreak = json['break_minutes'] ?? json['total_break'] ?? 0;
 
     return TimeLog(
-      checkInTime: rawIn != null ? DateTime.tryParse(rawIn.toString()) ?? DateTime.now() : DateTime.now(),
-      checkOutTime: rawOut != null ? DateTime.tryParse(rawOut.toString()) : null,
+      checkInTime: rawIn != null ? (DateTime.tryParse(rawIn.toString()) ?? DateTime.now()) : DateTime.now(),
+      // ✅ FIXED: Added check for empty string or null to prevent parsing crashes
+      checkOutTime: (rawOut != null && rawOut.toString().isNotEmpty) ? DateTime.tryParse(rawOut.toString()) : null,
       breakMinutes: int.tryParse(rawBreak.toString()) ?? 0,
     );
   }
@@ -372,101 +373,103 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  Widget _buildHistoryCard(TimeLog log) {
-    bool isActive = log.checkOutTime == null;
-    
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.03)),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                DateFormat('MMM dd, yyyy').format(log.checkInTime),
-                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: kTextDark),
+  // --- UI BUILDER ---
+Widget _buildHistoryCard(TimeLog log) {
+  bool isActive = log.checkOutTime == null;
+  
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Colors.black.withValues(alpha: 0.03)),
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 10, offset: const Offset(0, 4))],
+    ),
+    child: Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              DateFormat('MMM dd, yyyy').format(log.checkInTime),
+              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700, color: kTextDark),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: isActive ? const Color(0xFF0984e3).withValues(alpha: 0.1) : const Color(0xFF00b894).withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(20),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: isActive ? const Color(0xFF0984e3).withValues(alpha: 0.1) : const Color(0xFF00b894).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
+              child: Text(
+                isActive ? "Active Now" : "Completed",
+                style: GoogleFonts.inter(
+                  fontSize: 11, 
+                  fontWeight: FontWeight.w700, 
+                  color: isActive ? const Color(0xFF0984e3) : const Color(0xFF00b894),
                 ),
-                child: Text(
-                  isActive ? "Active Now" : "Completed",
-                  style: GoogleFonts.inter(
-                    fontSize: 11, 
-                    fontWeight: FontWeight.w700, 
-                    color: isActive ? const Color(0xFF0984e3) : const Color(0xFF00b894),
-                  ),
-                ),
-              )
-            ],
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 16.0),
-            child: Divider(height: 1, thickness: 1),
-          ),
-          
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.login_rounded, size: 14, color: kTextMuted),
-                      const SizedBox(width: 4),
-                      Text("Check In", style: GoogleFonts.inter(fontSize: 12, color: kTextMuted, fontWeight: FontWeight.w500)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(DateFormat('hh:mm a').format(log.checkInTime), style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kTextDark)),
-                ],
               ),
-              
-              const Icon(Icons.arrow_forward_rounded, color: Colors.black12, size: 20),
-              
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.logout_rounded, size: 14, color: kTextMuted),
-                      const SizedBox(width: 4),
-                      Text("Check Out", style: GoogleFonts.inter(fontSize: 12, color: kTextMuted, fontWeight: FontWeight.w500)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(log.checkOutTime != null ? DateFormat('hh:mm a').format(log.checkOutTime!) : "--:--", style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kTextDark)),
-                ],
-              ),
-              
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF4F6F9),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
+            )
+          ],
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16.0),
+          child: Divider(height: 1, thickness: 1),
+        ),
+        
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text("Total", style: GoogleFonts.inter(fontSize: 10, color: kTextMuted, fontWeight: FontWeight.w600)),
-                    Text(log.formattedDuration, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: kPrimaryGreen)),
+                    const Icon(Icons.login_rounded, size: 14, color: kTextMuted),
+                    const SizedBox(width: 4),
+                    Text("Check In", style: GoogleFonts.inter(fontSize: 12, color: kTextMuted, fontWeight: FontWeight.w500)),
                   ],
                 ),
-              )
-            ],
-          ),
-        ],
-      ),
-    );
-  }
+                const SizedBox(height: 4),
+                Text(DateFormat('hh:mm a').format(log.checkInTime), style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kTextDark)),
+              ],
+            ),
+            
+            const Icon(Icons.arrow_forward_rounded, color: Colors.black12, size: 20),
+            
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.logout_rounded, size: 14, color: kTextMuted),
+                    const SizedBox(width: 4),
+                    Text("Check Out", style: GoogleFonts.inter(fontSize: 12, color: kTextMuted, fontWeight: FontWeight.w500)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                // ✅ FIXED: Null-safe text rendering
+                Text(log.checkOutTime != null ? DateFormat('hh:mm a').format(log.checkOutTime!) : "--:--", style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: kTextDark)),
+              ],
+            ),
+            
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF4F6F9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text("Total", style: GoogleFonts.inter(fontSize: 10, color: kTextMuted, fontWeight: FontWeight.w600)),
+                  Text(log.formattedDuration, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w800, color: kPrimaryGreen)),
+                ],
+              ),
+            )
+          ],
+        ),
+      ],
+    ),
+  );
+}
 }

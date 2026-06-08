@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart'; 
 import 'package:local_auth/local_auth.dart'; 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; 
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:ui'; 
 import 'constants.dart';
 import 'home_screen.dart'; 
@@ -90,7 +92,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _authenticateWithBiometrics() async {
     try {
-      // THE FIX: Using the universal syntax to bypass the analyzer lock bug
       final bool didAuthenticate = await auth.authenticate(
         localizedReason: 'Scan your face or fingerprint to log in to Workack',
       );
@@ -101,7 +102,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         String? savedPassword = await secureStorage.read(key: 'saved_password');
         
         if (savedEmail != null && savedPassword != null) {
-          // Fill the hidden fields and trigger the PHP login automatically
           _emailController.text = savedEmail;
           _passwordController.text = savedPassword;
           _handleLogin(isBiometricLogin: true);
@@ -113,85 +113,109 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }
 
   // =====================================================================
-// SERVER LOGIN LOGIC
-// =====================================================================
-Future<void> _handleLogin({bool isBiometricLogin = false}) async {
-  if (_formKey.currentState!.validate() || isBiometricLogin) {
-    setState(() => _isLoading = true);
-    
-    try {
-      final response = await http.post(
-        Uri.parse(ApiConstants.login), 
-        body: {
-          "email": _emailController.text.trim(),
-          "password": _passwordController.text,
-        },
-      ).timeout(const Duration(seconds: 10));
+  // 🟢 NEW METHOD: ENSURE SYSTEM PERMISSIONS ON TRANSITION
+  // =====================================================================
+  Future<void> _ensureAppPermissions() async {
+    if (kIsWeb) return; // Skip hardware constraints on web environments
 
-      if (!mounted) return; // Guard async gap
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.locationWhenInUse,
+      Permission.camera,
+    ].request();
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(response.body);
-
-        if (responseData['status'] == 'success') {
-          final userData = responseData['data'];
-          
-          // --- 🚨 CRITICAL SAAS FIX: SAVE COMPANY ID 🚨 ---
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('isLoggedIn', true);
-          await prefs.setString('emp_id', userData['empId']?.toString() ?? ''); 
-          await prefs.setString('full_name', userData['fullName']?.toString() ?? '');
-          
-          // IMPORTANT: Ensure your PHP returns 'company_id' in the JSON response
-          await prefs.setString('company_id', userData['company_id']?.toString() ?? '');
-          // --------------------------------------------------
-
-          // BIOMETRIC PROMPT FLOW
-          if (!isBiometricLogin && _canCheckBiometrics) {
-            bool? wantsBiometrics = await showDialog<bool>(
-              context: context,
-              barrierDismissible: false,
-              builder: (context) => AlertDialog(
-                title: Text("Enable Fast Login?", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
-                content: Text("Use Fingerprint or Face ID for future logins?", style: GoogleFonts.inter()),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("No")),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: kPrimaryGreen),
-                    onPressed: () => Navigator.pop(context, true), 
-                    child: const Text("Enable", style: TextStyle(color: Colors.white))
-                  ),
-                ],
-              ),
-            );
-
-            if (wantsBiometrics == true) {
-              await secureStorage.write(key: 'saved_email', value: _emailController.text.trim());
-              await secureStorage.write(key: 'saved_password', value: _passwordController.text);
-            }
-          }
-
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
-        } else {
-          _showErrorSnackBar(responseData['message'] ?? 'Login failed.');
-        }
-      } else {
-        _showErrorSnackBar('Server error: ${response.statusCode}');
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showErrorSnackBar('Network error. Please check your connection.');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    // If permissions are permanently denied, direct them smoothly to OS system settings
+    if (statuses[Permission.locationWhenInUse]!.isPermanentlyDenied || 
+        statuses[Permission.camera]!.isPermanentlyDenied) {
+      _showInlineStatusSnackBar("Please enable Camera & Location permissions in App Settings.");
+      await openAppSettings();
     }
   }
-}
+
+  // =====================================================================
+  // SERVER LOGIN LOGIC
+  // =====================================================================
+  Future<void> _handleLogin({bool isBiometricLogin = false}) async {
+    if (_formKey.currentState!.validate() || isBiometricLogin) {
+      setState(() => _isLoading = true);
+      
+      try {
+        final response = await http.post(
+          Uri.parse(ApiConstants.login), 
+          body: {
+            "email": _emailController.text.trim(),
+            "password": _passwordController.text,
+          },
+        ).timeout(const Duration(seconds: 10));
+
+        if (!mounted) return; 
+
+        if (response.statusCode == 200) {
+          final Map<String, dynamic> responseData = jsonDecode(response.body);
+
+          if (responseData['status'] == 'success') {
+            final userData = responseData['data'];
+            
+            // Save local application preferences baseline
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('isLoggedIn', true);
+            await prefs.setString('emp_id', userData['empId']?.toString() ?? ''); 
+            await prefs.setString('full_name', userData['fullName']?.toString() ?? '');
+            await prefs.setString('company_id', userData['company_id']?.toString() ?? '');
+
+            // Biometric initialization choice sequence
+            if (!isBiometricLogin && _canCheckBiometrics) {
+              if (!mounted) return;
+
+              bool? wantsBiometrics = await showDialog<bool>(
+                context: context, 
+                barrierDismissible: false,
+                builder: (dialogContext) => AlertDialog(
+                  title: Text("Enable Fast Login?", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+                  content: Text("Use Fingerprint or Face ID for future logins?", style: GoogleFonts.inter()),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text("No")),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: kPrimaryGreen),
+                      onPressed: () => Navigator.pop(dialogContext, true), 
+                      child: const Text("Enable", style: TextStyle(color: Colors.white))
+                    ),
+                  ],
+                ),
+              );
+
+              if (!mounted) return;
+
+              if (wantsBiometrics == true) {
+                await secureStorage.write(key: 'saved_email', value: _emailController.text.trim());
+                await secureStorage.write(key: 'saved_password', value: _passwordController.text);
+              }
+            }
+
+            // 🟢 CRITICAL SYNC: Trigger the system permissions modal right here before swapping roots
+            await _ensureAppPermissions();
+
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const HomeScreen()),
+            );
+          } else {
+            _showErrorSnackBar(responseData['message'] ?? 'Login failed.');
+          }
+        } else {
+          _showErrorSnackBar('Server error: ${response.statusCode}');
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _showErrorSnackBar('Network error. Please check your connection.');
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    }
+  }
 
   void _showErrorSnackBar(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
@@ -202,7 +226,19 @@ Future<void> _handleLogin({bool isBiometricLogin = false}) async {
     );
   }
 
-  // Fallback for buildInputDecoration
+  void _showInlineStatusSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: GoogleFonts.inter(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        backgroundColor: kTextDark.withValues(alpha: 0.9),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   InputDecoration _buildLocalInputDecoration({required String hint, required IconData prefixIcon, Widget? suffixIcon}) {
     return InputDecoration(
       hintText: hint,
@@ -402,7 +438,6 @@ Future<void> _handleLogin({bool isBiometricLogin = false}) async {
     );
   }
 
-  // --- HELPER WIDGETS ---
   Widget _buildAppHeader() {
     return Column(
       children: [

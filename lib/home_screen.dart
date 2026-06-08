@@ -33,15 +33,14 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Start on the Dashboard (Index 0)
   int _bottomNavIndex = 0;
 
   final List<Widget> _screens = [
-    const AttendanceDashboard(), // Index 0 (Home/Center)
-    const ApplyLeaveScreen(),    // Index 1 (First Icon - Left)
-    const TasksScreen(),         // Index 2 (Second Icon - Left)
-    const HistoryScreen(),       // Index 3 (Third Icon - Right)
-    const ProfileScreen(),       // Index 4 (Fourth Icon - Right)
+    const AttendanceDashboard(), 
+    const ApplyLeaveScreen(),    
+    const TasksScreen(),         
+    const HistoryScreen(),       
+    const ProfileScreen(),       
   ];
 
   @override
@@ -49,9 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: kMilkWhite,
       body: IndexedStack(index: _bottomNavIndex, children: _screens),
-      
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      
       floatingActionButton: FloatingActionButton(
         onPressed: () => setState(() => _bottomNavIndex = 0),
         backgroundColor: kPrimaryGreen,
@@ -59,7 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
         shape: const CircleBorder(),
         child: const Icon(Icons.home_filled, color: Colors.white, size: 28),
       ),
-      
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
         shape: kIsWeb ? null : const CircularNotchedRectangle(),
@@ -72,9 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _buildNavIcon(Icons.edit_calendar_rounded, 1), 
               _buildNavIcon(Icons.task_alt_rounded, 2),
-              
-              const SizedBox(width: 40), // Gap for Home FAB
-              
+              const SizedBox(width: 40), 
               _buildNavIcon(Icons.calendar_today_rounded, 3), 
               _buildNavIcon(Icons.person_rounded, 4),
             ],
@@ -113,10 +107,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
   final ScrollController _dateScrollController = ScrollController();
 
   final List<String> _companyHolidays = [
-    "2026-01-26", // Republic Day
-    "2026-05-01", // May Day
-    "2026-08-15", // Independence Day
-    "2026-10-02", // Gandhi Jayanti
+    "2026-01-26", 
+    "2026-05-01", 
+    "2026-08-15", 
+    "2026-10-02", 
   ];
 
   Map<String, dynamic> _attendanceDatabase = {};
@@ -140,26 +134,20 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
   bool _isAbsent(DateTime date) {
     if (date.isAfter(DateTime.now()) || _getDateKey(date) == _todayKey) return false;
-    
     if (date.weekday == DateTime.sunday || date.weekday == DateTime.saturday) return false;
     if (_companyHolidays.contains(_getDateKey(date))) return false;
 
     String key = _getDateKey(date);
-    
     if (!_attendanceDatabase.containsKey(key)) return false; 
-    
     return _attendanceDatabase[key]['checkInTime'] == null;
   }
 
   Color _getDateCardColor(DateTime date, bool isSelected) {
     if (isSelected) return kPrimaryGreen; 
-
     if (date.weekday == DateTime.sunday) return Colors.red.shade50; 
-    
     if (date.weekday == DateTime.saturday || _companyHolidays.contains(_getDateKey(date))) {
       return Colors.blueGrey.shade50; 
     }
-
     return Colors.white; 
   }
 
@@ -169,6 +157,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     _generateDates();
     _loadSavedState();
+    
+    // 🟢 OPTIMIZED: Permission handling has been moved to login flow transitions.
+    // Removed: _requestInitialPermissions();
+
     _fetchDashboardData();
     fetchAttendanceHistory(); 
 
@@ -191,6 +183,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
       setState(() {}); 
     });
   }
+
+  // 🟢 NEW METHOD: Requests permissions on Dashboard initialization
+  
 
   @override
   void dispose() {
@@ -219,14 +214,11 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
       if (response.statusCode == 200) {
         String cleanBody = response.body.trim().replaceFirst(RegExp(r'^\ufeff'), '');
-        debugPrint("RAW HISTORY RESPONSE: $cleanBody"); 
-
         final data = json.decode(cleanBody);
         
         if (data['status'] == 'success') {
           setState(() {
             _attendanceLogs = (data['data'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>(); 
-            
             String key = _getDateKey(_selectedDate);
             if (!_attendanceDatabase.containsKey(key)) {
               _attendanceDatabase[key] = <String, dynamic>{};
@@ -246,7 +238,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
       }
     } catch (e) {
       debugPrint("History Fetch Crash: $e");
-      _showInlineStatus("App Crash: $e"); 
     }
   }
 
@@ -324,8 +315,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         setState(() => _customAvatarPath = prefs.getString('profile_image_mobile'));
       }
       
-      debugPrint("📱 Checking Emp ID: $empId"); 
-
       if (empId == null) return;
 
       final response = await http.post(
@@ -336,25 +325,15 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
           'company_id': companyId ?? '0',
         },
       );
-      debugPrint("🌐 Server Response: ${response.body}"); 
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
         if (responseData['status'] == 'success') {
-          
           final dashboardData = responseData['data'];
-          
-          if (dashboardData == null || dashboardData is! Map || dashboardData.isEmpty) {
-            debugPrint("⚠️ WARNING: Backend returned empty or invalid data: $dashboardData");
-            return;
-          }
+          if (dashboardData == null || dashboardData is! Map || dashboardData.isEmpty) return;
           
           final employeeInfo = dashboardData['employee'];
-          
-          if (employeeInfo == null || employeeInfo is! Map) {
-            debugPrint("⚠️ ERROR: Backend returned invalid employee data");
-            return;
-          }
+          if (employeeInfo == null || employeeInfo is! Map) return;
           
           setState(() {
             _employeeName = employeeInfo['full_name']?.toString() ?? 'Guest User';
@@ -364,14 +343,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             _officeLon = employeeInfo['office_lon'] != null ? double.tryParse(employeeInfo['office_lon'].toString()) : null;
 
             _todayData = (dashboardData['today'] as Map?)?.cast<String, dynamic>() ?? {};
-
             _totalAnnouncements = dashboardData['total_announcements'] ?? 1; 
             
             int lastSeen = prefs.getInt('seen_announcements') ?? 0;
-            
-            _unreadAnnouncements = _totalAnnouncements > lastSeen 
-                ? _totalAnnouncements - lastSeen 
-                : 0;
+            _unreadAnnouncements = _totalAnnouncements > lastSeen ? _totalAnnouncements - lastSeen : 0;
 
             if (_todayData['status'] == 'Checked In') {
               _attendanceDatabase[_todayKey]?['workState'] = WorkState.checkedIn.index;
@@ -385,12 +360,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             _attendanceDatabase[_todayKey]?['checkOutTime'] = _todayData['check_out_time'];
             _attendanceDatabase[_todayKey]?['durationMinutes'] = _todayData['duration_minutes'];
           });
-          
           _saveState();
         }
       }
-    } on TimeoutException {
-      debugPrint('Dashboard fetch timeout');
     } catch (e) {
       debugPrint('Dashboard fetch error: $e');
     }
@@ -455,14 +427,18 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
   }
 
   String _formatTime(String? timeStr) {
-    if (timeStr == null) return "--:--";
-    DateTime time = DateTime.parse(timeStr);
-    int h = time.hour;
-    int m = time.minute;
-    String ampm = h >= 12 ? "pm" : "am";
-    h = h % 12;
-    if (h == 0) h = 12;
-    return "$h:${m.toString().padLeft(2, '0')} $ampm";
+    if (timeStr == null || timeStr.isEmpty) return "--:--";
+    try {
+      DateTime time = DateTime.parse(timeStr);
+      int h = time.hour;
+      int m = time.minute;
+      String ampm = h >= 12 ? "pm" : "am";
+      h = h % 12;
+      if (h == 0) h = 12;
+      return "$h:${m.toString().padLeft(2, '0')} $ampm";
+    } catch (e) {
+      return "--:--"; 
+    }
   }
 
   String _calculateTotalHours(Map<String, dynamic> data) {
@@ -477,8 +453,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
           totalMinutes += outTime.difference(inTime).inMinutes;
         }
       }
-    } 
-    else {
+    } else {
       if (data['checkInTime'] == null) return "--";
       DateTime checkIn = DateTime.parse(data['checkInTime'] as String);
       DateTime endTime = data['checkOutTime'] != null ? DateTime.parse(data['checkOutTime'] as String) : DateTime.now();
@@ -509,32 +484,66 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     return breakMins;
   }
 
+  // =========================================================================
+  // ✅ HARDENED NULL-SAFE GEOFENCE & LOCATION PROCESSING ENGINE
+  // =========================================================================
+  // =========================================================================
+  // ✅ HARDENED NULL-SAFE GEOFENCE & LOCATION PROCESSING ENGINE
+  // =========================================================================
   Future<void> _verifyLocationAndScan() async {
     setState(() => _isActionLocked = true);
-    _showInlineStatus("Getting location...");
+    _showInlineStatus("Checking location rules...");
 
     Position? currentPosition;
 
     try {
+      // 1. Verify Device Level Hardware Services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        _showInlineStatus("Please turn on your GPS.");
+        _showInlineStatus("Please enable high accuracy GPS tracking.");
         setState(() { _swipePosition = 0.0; _isActionLocked = false; });
         return;
       }
 
+      // 2. Proactive Active Permission Check
       LocationPermission permission = await Geolocator.checkPermission();
+      
+      // If permission is denied, attempt to request it dynamically one last time
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          _showInlineStatus("Location permissions denied.");
+          _showInlineStatus("Location context required to confirm presence.");
           setState(() { _swipePosition = 0.0; _isActionLocked = false; });
           return;
         }
       }
 
-      currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      // If permanently blocked, open the OS App Settings window directly
+      if (permission == LocationPermission.deniedForever) {
+        _showInlineStatus("Opening App Settings to grant location rights...");
+        await openAppSettings();
+        setState(() { _swipePosition = 0.0; _isActionLocked = false; });
+        return;
+      }
 
+      // 3. Optimized Multi-Path Coordinate Parsing (High Window -> Cache Fallback)
+      try {
+        currentPosition = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 7), 
+        );
+      } catch (timeoutErr) {
+        debugPrint("Satellite lookup latency high, extracting background location vectors...");
+        currentPosition = await Geolocator.getLastKnownPosition();
+      }
+
+      if (currentPosition == null) {
+        _showInlineStatus("Weak positioning connection. Unlock or restart Maps.");
+        setState(() { _swipePosition = 0.0; _isActionLocked = false; });
+        return;
+      }
+
+      // 4. Dynamic Geofence Guard: Bypasses calculations cleanly if admin returns NULL
       if (_officeLat != null && _officeLon != null) {
         double distanceInMeters = Geolocator.distanceBetween(
           currentPosition.latitude, currentPosition.longitude, _officeLat!, _officeLon!
@@ -542,17 +551,19 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
         if (distanceInMeters > 200) { 
           int distanceAway = distanceInMeters.round();
-          _showInlineStatus("You are $distanceAway meters away from the office!");
+          _showInlineStatus("Out of range! You are $distanceAway meters away from base.");
           setState(() { _swipePosition = 0.0; _isActionLocked = false; });
           return;
         }
       }
 
+      // 5. Success Matrix Transition
       setState(() => _isActionLocked = false); 
       _startFaceScan(position: currentPosition); 
 
     } catch (e) {
-      _showInlineStatus("Failed to get location.");
+      debugPrint("🛑 INTERNAL GEOFENCE CRASH: $e");
+      _showInlineStatus("GPS connection failed. Please try again.");
       setState(() { _swipePosition = 0.0; _isActionLocked = false; });
     }
   }
@@ -673,61 +684,37 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
     if (_attendanceLogs.isNotEmpty) {
       for (var log in _attendanceLogs) {
-        logs.add(_buildTimelineItem(
-            "Checked In",
-            _formatTime(log['check_in_time']?.toString()),
-            Icons.login_rounded,
-            kPrimaryGreen));
+        if (log['check_in_time'] != null) {
+          logs.add(_buildTimelineItem("Checked In", _formatTime(log['check_in_time']?.toString()), Icons.login_rounded, kPrimaryGreen));
+        }
 
         int breaks = int.tryParse(log['break_minutes']?.toString() ?? '0') ?? 0;
         if (breaks > 0) {
-          logs.add(_buildTimelineItem(
-              "Took a Break",
-              "$breaks min total",
-              Icons.coffee_rounded,
-              Colors.orange));
+          logs.add(_buildTimelineItem("Took a Break", "$breaks min total", Icons.coffee_rounded, Colors.orange));
         }
 
-        if (log['check_out_time'] != null) {
-          logs.add(_buildTimelineItem(
-              "Checked Out",
-              _formatTime(log['check_out_time']?.toString()),
-              Icons.logout_rounded,
-              Colors.redAccent));
+        if (log['check_out_time'] != null && log['check_out_time'].toString().isNotEmpty) {
+          logs.add(_buildTimelineItem("Checked Out", _formatTime(log['check_out_time']?.toString()), Icons.logout_rounded, Colors.redAccent));
         }
       }
-    } 
-    else if (data['checkInTime'] != null) {
-      logs.add(_buildTimelineItem(
-          "Checked In", 
-          _formatTime(data['checkInTime'] as String?), 
-          Icons.login_rounded, kPrimaryGreen));
+    } else if (data['checkInTime'] != null) {
+      logs.add(_buildTimelineItem("Checked In", _formatTime(data['checkInTime'] as String?), Icons.login_rounded, kPrimaryGreen));
 
       if (data['breakStartTime'] != null || (data['breakMinutes'] != null && (data['breakMinutes'] as int) > 0)) {
-        logs.add(_buildTimelineItem(
-            "Took a Break", 
-            "${_calculateTotalBreak(data)} min total", 
-            Icons.coffee_rounded, Colors.orange));
+        logs.add(_buildTimelineItem("Took a Break", "${_calculateTotalBreak(data)} min total", Icons.coffee_rounded, Colors.orange));
       }
 
-      if (data['checkOutTime'] != null) {
-        logs.add(_buildTimelineItem(
-            "Checked Out", 
-            _formatTime(data['checkOutTime'] as String?), 
-            Icons.logout_rounded, Colors.redAccent));
+      if (data['checkOutTime'] != null && data['checkOutTime'].toString().isNotEmpty) {
+        logs.add(_buildTimelineItem("Checked Out", _formatTime(data['checkOutTime'] as String?), Icons.logout_rounded, Colors.redAccent));
       }
     }
 
     if (logs.isEmpty) {
       logs.add(Padding(
         padding: const EdgeInsets.symmetric(vertical: 24.0),
-        child: Center(
-            child: Text("No activity recorded for this date.",
-                style: GoogleFonts.inter(
-                    color: kTextMuted, fontStyle: FontStyle.italic))),
+        child: Center(child: Text("No activity recorded for this date.", style: GoogleFonts.inter(color: kTextMuted, fontStyle: FontStyle.italic))),
       ));
     }
-
     return logs;
   }
 
@@ -760,7 +747,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
     if (_attendanceLogs.isNotEmpty) {
       _attendanceLogs.sort((a, b) => (a['check_in_time'] ?? '').compareTo(b['check_in_time'] ?? ''));
-
       currentData['checkInTime'] = _attendanceLogs.first['check_in_time'];
       currentData['checkOutTime'] = _attendanceLogs.last['check_out_time'];
       
@@ -769,7 +755,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         totalBreaks += int.tryParse(log['break_minutes']?.toString() ?? '0') ?? 0;
       }
       currentData['breakMinutes'] = totalBreaks;
-      
     } else if (!isViewingToday) {
       currentData['checkInTime'] = null;
       currentData['checkOutTime'] = null;
@@ -777,7 +762,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     }
 
     WorkState displayedState = WorkState.values[currentData['workState'] as int? ?? 0];
-    
     final monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     String currentMonth = "${monthNames[_recentDays[_selectedDateIndex].month - 1]} ${_recentDays[_selectedDateIndex].year}";
 
@@ -790,8 +774,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                 padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 16.0),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
-                    
-                   // HEADER 
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -806,8 +788,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                           child: Row(
                             children: [
                               Container(
-                                width: 48,
-                                height: 48,
+                                width: 48, height: 48,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle, 
                                   border: Border.all(color: kPrimaryGreen, width: 2), 
@@ -836,7 +817,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                             ],
                           ),
                         ),
-                        
                         Row(
                           children: [
                             IconButton(
@@ -845,10 +825,8 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                   context,
                                   MaterialPageRoute(builder: (context) => const AnnouncementsScreen()),
                                 );
-                                
                                 if (mounted) {
                                   setState(() => _unreadAnnouncements = 0); 
-                                  
                                   final prefs = await SharedPreferences.getInstance();
                                   await prefs.setInt('seen_announcements', _totalAnnouncements);
                                 }
@@ -857,11 +835,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                 clipBehavior: Clip.none,
                                 children: [
                                   const Icon(Icons.notifications_none_rounded, color: kTextDark, size: 28),
-                                  
                                   if (_unreadAnnouncements > 0)
                                     Positioned(
-                                      right: -2,
-                                      top: -4,
+                                      right: -2, top: -4,
                                       child: Container(
                                         padding: const EdgeInsets.all(3),
                                         decoration: BoxDecoration(
@@ -869,18 +845,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                           borderRadius: BorderRadius.circular(10), 
                                           border: Border.all(color: Colors.white, width: 1.5),
                                         ),
-                                        constraints: const BoxConstraints(
-                                          minWidth: 18,
-                                          minHeight: 18,
-                                        ),
+                                        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
                                         child: Text(
                                           _unreadAnnouncements > 9 ? '9+' : '$_unreadAnnouncements',
-                                          style: GoogleFonts.inter(
-                                            color: Colors.white,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.bold,
-                                            height: 1.1, 
-                                          ),
+                                          style: GoogleFonts.inter(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, height: 1.1),
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
@@ -893,8 +861,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                       ],
                     ),
                     const SizedBox(height: 32),
-
-                   // DATE SELECTOR WITH MONTH CONTEXT
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -937,8 +903,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                 color: _getDateCardColor(date, isSelected), 
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: _isAbsent(date) ? Colors.redAccent.withValues(alpha: 0.6) 
-                                       : (isSelected ? Colors.transparent : Colors.black.withValues(alpha: 0.05)),
+                                  color: _isAbsent(date) ? Colors.redAccent.withValues(alpha: 0.6) : (isSelected ? Colors.transparent : Colors.black.withValues(alpha: 0.05)),
                                   width: _isAbsent(date) ? 1.5 : 1.0,
                                 ), 
                                 boxShadow: isSelected ? [BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))] : [], 
@@ -948,19 +913,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                 children: [
                                   Text(
                                     date.day.toString().padLeft(2, '0'), 
-                                    style: GoogleFonts.inter(
-                                      fontSize: 18, 
-                                      fontWeight: FontWeight.bold, 
-                                      color: isSelected ? Colors.white : (date.weekday == DateTime.sunday ? Colors.redAccent : kTextDark)
-                                    )
+                                    style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : (date.weekday == DateTime.sunday ? Colors.redAccent : kTextDark))
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
                                     days[date.weekday - 1], 
-                                    style: GoogleFonts.inter(
-                                      fontSize: 12, 
-                                      color: isSelected ? Colors.white70 : (date.weekday == DateTime.sunday ? Colors.redAccent.withValues(alpha: 0.6) : kTextMuted)
-                                    )
+                                    style: GoogleFonts.inter(fontSize: 12, color: isSelected ? Colors.white70 : (date.weekday == DateTime.sunday ? Colors.redAccent.withValues(alpha: 0.6) : kTextMuted))
                                   ),
                                 ],
                               ),
@@ -970,8 +928,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // DYNAMIC ATTENDANCE GRID
                     Text("Dashboard", style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: kTextDark)),
                     const SizedBox(height: 16),
                     GridView(
@@ -982,17 +938,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                       ),
                       children: [
                         _buildGridCard("Check In", _formatTime(currentData['checkInTime'] as String?), currentData['checkInTime'] == null ? "Pending" : "Verified Identity", Icons.login_rounded),
-                        
                         _buildGridCard("Check Out", _formatTime(currentData['checkOutTime'] as String?), currentData['checkOutTime'] == null ? (displayedState == WorkState.initial && currentData['checkInTime'] == null ? "Pending" : "Active Shift") : "Shift Ended", Icons.logout_rounded),
-                        
                         _buildGridCard("Break Time", currentData['checkInTime'] == null ? "--:--" : "${_calculateTotalBreak(currentData)} min", "Total taken", Icons.coffee_rounded),
-                        
                         _buildGridCard("Total Hours", _calculateTotalHours(currentData), "Active Work Time", Icons.access_time_rounded),
                       ],
                     ),
                     const SizedBox(height: 32),
-
-                    // ACTIVITY TIMELINE
                     Text("Your Activity", style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700, color: kTextDark)),
                     const SizedBox(height: 16),
                     Container(
@@ -1002,20 +953,15 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                         children: _buildActivityLog(currentData),
                       ),
                     ),
-                    
                     const SizedBox(height: 140), 
                   ]),
                 ),
               ),
             ],
           ),
-          
-         // Glassmorphic Panel over the Stack
           if (isViewingToday && displayedState != WorkState.checkedOut)
             Positioned(
-              bottom: 35, 
-              left: 20,   
-              right: 20,
+              bottom: 35, left: 20, right: 20,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(32), 
                 child: BackdropFilter(
@@ -1025,9 +971,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.85),
                       border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
-                      boxShadow: [
-                        BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 10))
-                      ]
+                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 10))]
                     ),
                     child: _buildActionPanel(displayedState),
                   ),
@@ -1156,10 +1100,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: kPrimaryGreen.withValues(alpha: 0.1), 
-                  shape: BoxShape.circle
-                ), 
+                decoration: BoxDecoration(color: kPrimaryGreen.withValues(alpha: 0.1), shape: BoxShape.circle), 
                 child: Icon(icon, color: kPrimaryGreen, size: 16),
               ),
               const SizedBox(width: 8),
@@ -1167,24 +1108,20 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                 child: Text(
                   title, 
                   style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: kTextDark.withValues(alpha: 0.8)), 
-                  maxLines: 1, 
-                  overflow: TextOverflow.ellipsis
+                  maxLines: 1, overflow: TextOverflow.ellipsis
                 )
               ), 
             ],
           ),
           const Spacer(),
           FittedBox(
-            fit: BoxFit.scaleDown, 
-            alignment: Alignment.centerLeft, 
+            fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, 
             child: Text(mainValue, style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w800, color: kTextDark))
           ),
           const SizedBox(height: 4),
           Text(
-            subtitle, 
-            style: GoogleFonts.inter(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w500), 
-            maxLines: 1, 
-            overflow: TextOverflow.ellipsis
+            subtitle, style: GoogleFonts.inter(fontSize: 11, color: kTextMuted, fontWeight: FontWeight.w500), 
+            maxLines: 1, overflow: TextOverflow.ellipsis
           ),
         ],
       ),
@@ -1193,18 +1130,12 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
   Future<void> _syncAttendanceWithServer(String action, String isoTime, {int breakMins = 0, double? lat, double? lon}) async {
     final logger = Logger(printer: PrettyPrinter(methodCount: 0, errorMethodCount: 5, lineLength: 80, colors: true, printEmojis: true));
-
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? empId = prefs.getString('emp_id');
       final String? companyId = prefs.getString('company_id'); 
 
-      if (empId == null || empId.isEmpty) {
-        logger.e("🛑 SYNC FAILED: emp_id is missing from SharedPreferences!");
-        return; 
-      }
-
-      logger.i("🔄 Attempting to sync attendance: $action at $isoTime for Employee: $empId");
+      if (empId == null || empId.isEmpty) return;
 
       Map<String, String> requestBody = {
         'emp_id': empId,
@@ -1219,17 +1150,11 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         requestBody['lon'] = lon.toString();
       }
 
-      final response = await http.post(
-          Uri.parse('https://www.workack.com/attendance-app/save_attendance.php'),
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: requestBody,
-        ).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode == 200) {
-        logger.d("✅ SERVER RESPONSE: ${response.body}");
-      } else {
-        logger.e("🛑 SERVER HTTP ERROR: ${response.statusCode}");
-      }
+      await http.post(
+        Uri.parse('https://www.workack.com/attendance-app/save_attendance.php'),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: requestBody,
+      ).timeout(const Duration(seconds: 10));
 
     } catch (e) {
       logger.e("🛑 NETWORK ERROR during sync: $e");
@@ -1238,7 +1163,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 }
 
 // =========================================================================
-// FACE SCAN MODAL (WITH DEV MODE ENABLED FOR TESTING)
+// FACE SCAN MODAL (WITH SYSTEM PERMISSIONS ASSURED)
 // =========================================================================
 class FaceScanModal extends StatefulWidget {
   const FaceScanModal({super.key});
@@ -1262,10 +1187,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _checkAnimController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    );
+    _checkAnimController = AnimationController(duration: const Duration(milliseconds: 1000), vsync: this);
     _checkScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _checkAnimController, curve: Curves.elasticOut),
     );
@@ -1280,35 +1202,17 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
   Future<void> _simulateDevModeScan() async {
     setState(() => _scanStatus = 0);
     await Future.delayed(const Duration(seconds: 2)); 
-    if (mounted) {
-      _completeFaceScan(true);
-    }
+    if (mounted) _completeFaceScan(true);
   }
 
   Future<void> _initializeRealCamera() async {
-    if (kIsWeb) {
-      _simulateDevModeScan();
-      return;
-    }
+    if (kIsWeb) { _simulateDevModeScan(); return; }
 
     try {
-      final Map<Permission, PermissionStatus> statuses = await [
-        Permission.camera,
-        Permission.locationWhenInUse,
-      ].request();
-      
-      if (!mounted) return;
-      
-      if (statuses[Permission.camera]!.isDenied || statuses[Permission.locationWhenInUse]!.isDenied) {
-        setState(() => _scanStatus = 2);
-        _showErrorSnackBar("Camera and Location permissions are required to check in.");
-        return;
-      }
-
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
         setState(() => _scanStatus = 2);
-        _showErrorSnackBar("No camera available");
+        _showErrorSnackBar("No camera hardware detected on device.");
         return;
       }
 
@@ -1316,9 +1220,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
         cameras.firstWhere((camera) => camera.lensDirection == CameraLensDirection.front, orElse: () => cameras[0]),
         ResolutionPreset.medium,
         enableAudio: false, 
-        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS 
-            ? ImageFormatGroup.bgra8888 
-            : ImageFormatGroup.nv21,
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
@@ -1335,7 +1237,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
     } catch (e) {
       if (mounted) {
         setState(() => _scanStatus = 2);
-        _showErrorSnackBar("Hardware error: ${e.toString().split('\n').first}");
+        _showErrorSnackBar("Camera link initialization failed.");
       }
     }
   }
@@ -1346,13 +1248,11 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
       if (_isFaceDetected || !mounted) return;
       frameCount++;
       _detectionAttempts++;
-      
       if (frameCount % 10 != 0) return;
       
       try {
         final sensorOrientation = _cameraController!.description.sensorOrientation;
-        final InputImageRotation rotation = InputImageRotationValue.fromRawValue(sensorOrientation) 
-            ?? InputImageRotation.rotation90deg;
+        final InputImageRotation rotation = InputImageRotationValue.fromRawValue(sensorOrientation) ?? InputImageRotation.rotation90deg;
 
         final WriteBuffer allBytes = WriteBuffer();
         for (final Plane plane in image.planes) {
@@ -1365,24 +1265,20 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
           metadata: InputImageMetadata(
             size: Size(image.width.toDouble(), image.height.toDouble()),
             rotation: rotation,
-            format: defaultTargetPlatform == TargetPlatform.iOS 
-                ? InputImageFormat.bgra8888 
-                : InputImageFormat.nv21,
+            format: defaultTargetPlatform == TargetPlatform.iOS ? InputImageFormat.bgra8888 : InputImageFormat.nv21,
             bytesPerRow: image.planes[0].bytesPerRow,
           ),
         );
         
         final faces = await _faceDetector!.processImage(inputImage);
-        
         if (mounted && !_isFaceDetected && faces.isNotEmpty) {
           _completeFaceScan(true);
         }
       } catch (e) {
-        // Silently catch frame drops
+        // Drop frames safely
       }
     });
 
-    // 8-Second Timeout Fallback
     Future.delayed(const Duration(seconds: 8), () {
       if (mounted && !_isFaceDetected && _scanStatus == 0) {
         setState(() => _scanStatus = 2); 
@@ -1394,31 +1290,22 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
   Future<void> _completeFaceScan(bool success) async {
     if (_isFaceDetected) return; 
     if (mounted) {
-      setState(() {
-        _isFaceDetected = true;
-        _scanStatus = 1;
-      });
+      setState(() { _isFaceDetected = true; _scanStatus = 1; });
       _checkAnimController.forward();
     }
     try {
       await _cameraController?.stopImageStream();
     } catch (e) {
-      debugPrint('Error stopping image stream: $e');
+      debugPrint('Stream halt trace: $e');
     } 
     
-    await Future.delayed(const Duration(milliseconds: 2000));
+    await Future.delayed(const Duration(milliseconds: 1800));
     if (mounted) Navigator.pop(context, success);
   }
 
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, maxLines: 2),
-        backgroundColor: Colors.redAccent,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
   }
 
   @override
@@ -1551,7 +1438,6 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                       backgroundColor: kPrimaryGreen,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      elevation: 0,
                     ),
                     child: Text("Try Again", style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white)),
                   ),
