@@ -70,6 +70,15 @@ android {
             )
         }
     }
+
+    // 24. Force the compiler to completely bypass the native `.so` binary stripping phase
+    // This stops Gradle 8.14 from crashing on external C++ components used by MLKit
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            doNotStrip("**/*.so")
+        }
+    }
 }
 
 flutter {
