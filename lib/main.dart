@@ -7,6 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'constants.dart';
 import 'onboarding_screen.dart';
 import 'login_screen.dart';
+import 'permission_screen.dart'; // Mapped for multi-tenant hardware verification steps
 import 'home_screen.dart';
 
 void main() async {
@@ -19,19 +20,17 @@ void main() async {
 
   final prefs = await SharedPreferences.getInstance();
   final bool onboardingCompleted = prefs.getBool('onboardingCompleted') ?? false;
-  
-  // ADD THIS: Check if the user is already logged in
   final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
 
   runApp(AttendanceApp(
     onboardingCompleted: onboardingCompleted, 
-    isLoggedIn: isLoggedIn, // Pass it to the app
+    isLoggedIn: isLoggedIn, 
   ));
 }
 
 class AttendanceApp extends StatelessWidget {
   final bool onboardingCompleted;
-  final bool isLoggedIn; // Add this variable
+  final bool isLoggedIn; 
   
   const AttendanceApp({
     super.key, 
@@ -50,7 +49,6 @@ class AttendanceApp extends StatelessWidget {
         textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
         useMaterial3: true,
       ),
-      // Pass both states to the Splash Screen
       home: SplashScreen(
         onboardingCompleted: onboardingCompleted,
         isLoggedIn: isLoggedIn,
@@ -61,7 +59,7 @@ class AttendanceApp extends StatelessWidget {
 
 class SplashScreen extends StatefulWidget {
   final bool onboardingCompleted;
-  final bool isLoggedIn; // Add this variable
+  final bool isLoggedIn; 
 
   const SplashScreen({
     super.key, 
@@ -69,11 +67,13 @@ class SplashScreen extends StatefulWidget {
     required this.isLoggedIn,
   });
 
+  // 🟢 FIXED: Removed 'const' because building state contexts dynamically cannot be evaluated compile-time
+  @override
+  Widget build(BuildContext context) => _SplashScreenState().build(context); 
+  
   @override
   State<SplashScreen> createState() => _SplashScreenState();
 }
-
-// ... (your existing imports)
 
 class _SplashScreenState extends State<SplashScreen> {
   @override
@@ -81,11 +81,15 @@ class _SplashScreenState extends State<SplashScreen> {
     super.initState();
     Timer(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
+      
+      // 🟢 ROUTING ROUTE TRANSITION MATRIX:
+      // Controls whether a user needs to see onboarding, login credentials, or hardware validation.
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (context) {
             if (widget.onboardingCompleted) {
-              return widget.isLoggedIn ? const HomeScreen() : const LoginScreen();
+              // If logged in, intercept them with PermissionScreen before landing on HomeScreen
+              return widget.isLoggedIn ? const PermissionScreen() : const LoginScreen();
             } else {
               return const OnboardingScreen();
             }
@@ -102,8 +106,7 @@ class _SplashScreenState extends State<SplashScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     
-    // This tells the phone to load these into RAM right now.
-    // When the user hits the Onboarding/Login screens, they appear INSTANTLY.
+    // Low-latency asset allocation pre-loaded into RAM to optimize rendering threads
     precacheImage(const AssetImage('assets/images/logo.png'), context);
     precacheImage(const AssetImage('assets/images/mockup_1.png'), context);
     precacheImage(const AssetImage('assets/images/mockup_2.png'), context);
@@ -121,7 +124,7 @@ class _SplashScreenState extends State<SplashScreen> {
             Container(
               width: 100, height: 100,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.15),
+                color: Colors.white.withOpacity(0.15),
                 shape: BoxShape.circle,
               ),
               child: Container(
@@ -130,7 +133,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
+                      color: Colors.black.withOpacity(0.2),
                       blurRadius: 20,
                       offset: const Offset(0, 8),
                     ),
@@ -142,7 +145,6 @@ class _SplashScreenState extends State<SplashScreen> {
                     'assets/images/logo.png',
                     width: 76, height: 76,
                     fit: BoxFit.cover,
-                    // Graceful fallback if image still fails
                     errorBuilder: (context, error, stackTrace) => const Icon(
                       Icons.apartment_rounded, 
                       color: Colors.white, 

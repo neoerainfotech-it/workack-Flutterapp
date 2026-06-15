@@ -1,7 +1,8 @@
 name: flutter_application_1
 description: "Workack Attendance App"
 publish_to: 'none'
-version: 1.0.1+9
+version: 1.0.1+12
+
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

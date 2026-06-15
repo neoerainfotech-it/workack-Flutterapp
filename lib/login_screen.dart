@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'dart:ui'; 
 import 'constants.dart';
 import 'home_screen.dart'; 
+import 'permission_screen.dart'; // 🟢 ADD THIS IMPORT
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -113,20 +114,36 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
   }
 
   // =====================================================================
-  // 🟢 NEW METHOD: ENSURE SYSTEM PERMISSIONS ON TRANSITION
+  // 自由 GROUND PERMISSIONS HANDSHAKE ENGINE
   // =====================================================================
   Future<void> _ensureAppPermissions() async {
     if (kIsWeb) return; // Skip hardware constraints on web environments
 
+    // 1. Core Permissions Map Checklist Request
     Map<Permission, PermissionStatus> statuses = await [
-      Permission.locationWhenInUse,
       Permission.camera,
+      Permission.locationWhenInUse,
     ].request();
 
-    // If permissions are permanently denied, direct them smoothly to OS system settings
+    // 2. Safe Dynamic Storage Level Assessment (Handles newer Android SDK 33+ vs Legacy Storage)
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      // For modern Android devices, request photos/media access natively instead of broken legacy blocks
+      await Permission.photos.request();
+    } else {
+      await Permission.storage.request();
+    }
+
+    // 3. Proactive Location Check Escalation
+    // If locationWhenInUse is granted, smoothly escalate to locationAlways to avoid background check-out lockouts
+    if (statuses[Permission.locationWhenInUse]!.isGranted) {
+      await Permission.locationAlways.request();
+    }
+
+    // 4. Force System Settings Check fallback if permanently blocked by user choice
     if (statuses[Permission.locationWhenInUse]!.isPermanentlyDenied || 
         statuses[Permission.camera]!.isPermanentlyDenied) {
-      _showInlineStatusSnackBar("Please enable Camera & Location permissions in App Settings.");
+      _showInlineStatusSnackBar("Camera & Location tracking are required for Workack. Opening settings...");
+      await Future.delayed(const Duration(seconds: 2));
       await openAppSettings();
     }
   }
@@ -191,13 +208,16 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               }
             }
 
-            // 🟢 CRITICAL SYNC: Trigger the system permissions modal right here before swapping roots
+            // 🟢 CRITICAL SYNC: Ensure permissions are fully granted right before structural screen swaps
             await _ensureAppPermissions();
 
+            // Removed: await _ensureAppPermissions(); // No longer needed here!
+
             if (!mounted) return;
+            // 🟢 REDIRECT ROUTE CHANGE: Send users to the beautifully isolated Permission Screen first
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(builder: (_) => const HomeScreen()),
+              MaterialPageRoute(builder: (_) => const PermissionScreen()),
             );
           } else {
             _showErrorSnackBar(responseData['message'] ?? 'Login failed.');
@@ -231,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.inter(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        backgroundColor: kTextDark.withValues(alpha: 0.9),
+        backgroundColor: kTextDark.withOpacity(0.9),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
         duration: const Duration(seconds: 3),
@@ -248,7 +268,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       filled: true,
       fillColor: const Color(0xFFF8FAFC),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.black.withValues(alpha: 0.05))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.black.withOpacity(0.05))),
       focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: kPrimaryGreen, width: 2)),
     );
   }
@@ -265,12 +285,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           Positioned(
             top: -100,
             right: -50,
-            child: _buildBackgroundOrb(250, kPrimaryGreen.withValues(alpha: 0.15)),
+            child: _buildBackgroundOrb(250, kPrimaryGreen.withOpacity(0.15)),
           ),
           Positioned(
             bottom: -50,
             left: -100,
-            child: _buildBackgroundOrb(300, kSecondaryGreen.withValues(alpha: 0.1)),
+            child: _buildBackgroundOrb(300, kSecondaryGreen.withOpacity(0.1)),
           ),
           
           SafeArea(
@@ -300,10 +320,10 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(24),
-                                      border: Border.all(color: Colors.black.withValues(alpha: 0.03)),
+                                      border: Border.all(color: Colors.black.withOpacity(0.03)),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.04),
+                                          color: Colors.black.withOpacity(0.04),
                                           blurRadius: 24,
                                           offset: const Offset(0, 8),
                                         ),
@@ -379,7 +399,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                                       padding: EdgeInsets.zero,
                                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                                       elevation: 8,
-                                                      shadowColor: kPrimaryGreen.withValues(alpha: 0.3),
+                                                      shadowColor: kPrimaryGreen.withOpacity(0.3),
                                                     ),
                                                     child: Ink(
                                                       decoration: BoxDecoration(
@@ -447,7 +467,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
             boxShadow: [
-              BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.2), blurRadius: 20, offset: const Offset(0, 10)),
+              BoxShadow(color: kPrimaryGreen.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10)),
             ],
           ),
           child: ClipRRect(

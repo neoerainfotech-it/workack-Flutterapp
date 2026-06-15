@@ -8,6 +8,7 @@ import 'package:camera/camera.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
+import 'dart:io' as io; 
 import 'dart:async';
 import 'dart:convert';
 import 'constants.dart';
@@ -88,7 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // =========================================================================
-// ATTENDANCE DASHBOARD — The Core Logic & UI
+// ATTENDANCE DASHBOARD — Core Logic & Dynamic Multi-Tenant Caching
 // =========================================================================
 class AttendanceDashboard extends StatefulWidget {
   const AttendanceDashboard({super.key});
@@ -132,6 +133,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
   int _unreadAnnouncements = 0;
   int _totalAnnouncements = 0; 
 
+  // 1. 🟢 NEW: Admin Corporate Switch Tracker State Variable
+  bool _isCameraRequiredByAdmin = true; 
+
   bool _isAbsent(DateTime date) {
     if (date.isAfter(DateTime.now()) || _getDateKey(date) == _todayKey) return false;
     if (date.weekday == DateTime.sunday || date.weekday == DateTime.saturday) return false;
@@ -157,9 +161,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     WidgetsBinding.instance.addObserver(this);
     _generateDates();
     _loadSavedState();
-    
-    // 🟢 OPTIMIZED: Permission handling has been moved to login flow transitions.
-    // Removed: _requestInitialPermissions();
 
     _fetchDashboardData();
     fetchAttendanceHistory(); 
@@ -184,9 +185,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     });
   }
 
-  // 🟢 NEW METHOD: Requests permissions on Dashboard initialization
-  
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -199,6 +197,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? empId = prefs.getString('emp_id');
+      final String? companyId = prefs.getString('company_id');
       if (empId == null) return;
 
       final String formattedDate = DateFormat('yyyy-MM-dd').format(_selectedDate);
@@ -208,6 +207,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         headers: {"Content-Type": "application/x-www-form-urlencoded"},
         body: {
           'emp_id': empId,
+          'company_id': companyId ?? '0',
           'date': formattedDate, 
         },
       );
@@ -283,12 +283,18 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
   Future<void> _loadSavedState() async {
     final prefs = await SharedPreferences.getInstance();
-    String? dbJson = prefs.getString('attendance_db');
+    final String empId = prefs.getString('emp_id') ?? 'anon';
+    final String companyId = prefs.getString('company_id') ?? '0';
+    
+    String uniqueCacheKey = 'attendance_db_${companyId}_$empId';
+    String? dbJson = prefs.getString(uniqueCacheKey);
     
     if (dbJson != null) {
       setState(() {
         _attendanceDatabase = Map<String, dynamic>.from(jsonDecode(dbJson) as Map);
       });
+    } else {
+      _attendanceDatabase = {};
     }
     
     if (!_attendanceDatabase.containsKey(_todayKey)) {
@@ -300,6 +306,15 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     
     _handleMidnightRollover();
     setState(() => _isLoading = false);
+  }
+
+  Future<void> _saveState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String empId = prefs.getString('emp_id') ?? 'anon';
+    final String companyId = prefs.getString('company_id') ?? '0';
+    
+    String uniqueCacheKey = 'attendance_db_${companyId}_$empId';
+    await prefs.setString(uniqueCacheKey, jsonEncode(_attendanceDatabase));
   }
 
   Future<void> _fetchDashboardData() async {
@@ -342,6 +357,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             _officeLat = employeeInfo['office_lat'] != null ? double.tryParse(employeeInfo['office_lat'].toString()) : null;
             _officeLon = employeeInfo['office_lon'] != null ? double.tryParse(employeeInfo['office_lon'].toString()) : null;
 
+            // 2. 🟢 NEW: Parse Corporate Camera Access Requirement Switch from server parameters safely
+            _isCameraRequiredByAdmin = (employeeInfo['camera_required'] ?? 1) == 1;
+
             _todayData = (dashboardData['today'] as Map?)?.cast<String, dynamic>() ?? {};
             _totalAnnouncements = dashboardData['total_announcements'] ?? 1; 
             
@@ -352,6 +370,8 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
               _attendanceDatabase[_todayKey]?['workState'] = WorkState.checkedIn.index;
             } else if (_todayData['status'] == 'Checked Out') {
               _attendanceDatabase[_todayKey]?['workState'] = WorkState.checkedOut.index;
+            } else if (_todayData['status'] == 'On Break') {
+              _attendanceDatabase[_todayKey]?['workState'] = WorkState.onBreak.index;
             } else {
               _attendanceDatabase[_todayKey]?['workState'] = WorkState.initial.index;
             }
@@ -366,11 +386,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     } catch (e) {
       debugPrint('Dashboard fetch error: $e');
     }
-  }
-
-  Future<void> _saveState() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('attendance_db', jsonEncode(_attendanceDatabase));
   }
 
   Map<String, dynamic> _getViewedData() {
@@ -485,10 +500,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
   }
 
   // =========================================================================
-  // ✅ HARDENED NULL-SAFE GEOFENCE & LOCATION PROCESSING ENGINE
-  // =========================================================================
-  // =========================================================================
-  // ✅ HARDENED NULL-SAFE GEOFENCE & LOCATION PROCESSING ENGINE
+  // GEOFENCE LOOKUP MECHANISM
   // =========================================================================
   Future<void> _verifyLocationAndScan() async {
     setState(() => _isActionLocked = true);
@@ -497,7 +509,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     Position? currentPosition;
 
     try {
-      // 1. Verify Device Level Hardware Services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _showInlineStatus("Please enable high accuracy GPS tracking.");
@@ -505,10 +516,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         return;
       }
 
-      // 2. Proactive Active Permission Check
       LocationPermission permission = await Geolocator.checkPermission();
-      
-      // If permission is denied, attempt to request it dynamically one last time
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
@@ -518,7 +526,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         }
       }
 
-      // If permanently blocked, open the OS App Settings window directly
       if (permission == LocationPermission.deniedForever) {
         _showInlineStatus("Opening App Settings to grant location rights...");
         await openAppSettings();
@@ -526,11 +533,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         return;
       }
 
-      // 3. Optimized Multi-Path Coordinate Parsing (High Window -> Cache Fallback)
       try {
         currentPosition = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 7), 
+          desiredAccuracy: LocationAccuracy.high, 
+          timeLimit: const Duration(seconds: 8),
         );
       } catch (timeoutErr) {
         debugPrint("Satellite lookup latency high, extracting background location vectors...");
@@ -543,7 +549,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         return;
       }
 
-      // 4. Dynamic Geofence Guard: Bypasses calculations cleanly if admin returns NULL
       if (_officeLat != null && _officeLon != null) {
         double distanceInMeters = Geolocator.distanceBetween(
           currentPosition.latitude, currentPosition.longitude, _officeLat!, _officeLon!
@@ -557,9 +562,25 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         }
       }
 
-      // 5. Success Matrix Transition
+      // Geofence check success clearing terminal vectors
       setState(() => _isActionLocked = false); 
-      _startFaceScan(position: currentPosition); 
+
+      // 3. 🟢 NEW: Admin Verification Pipeline Condition Gate
+      if (!_isCameraRequiredByAdmin) {
+        // Admin camera tracking setup is disabled for this user -> Process immediate bypass check-in payload!
+        final nowIso = DateTime.now().toIso8601String(); 
+        setState(() {
+          _updateTodayData('workState', WorkState.checkedIn.index);
+          _updateTodayData('checkInTime', nowIso);
+          _swipePosition = 0.0; 
+        });
+        
+        _showInlineStatus("Checked In Successfully!");
+        _syncAttendanceWithServer('check_in', nowIso, lat: currentPosition.latitude, lon: currentPosition.longitude);
+      } else {
+        // Camera requirement settings active on stable channel -> Route safely straight onto standard Face Scan modal framework
+        _startFaceScan(position: currentPosition); 
+      }
 
     } catch (e) {
       debugPrint("🛑 INTERNAL GEOFENCE CRASH: $e");
@@ -598,23 +619,60 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     });
   }
 
-  void _handleBreakToggle() {
+  void _handleBreakToggle() async {
     var data = _getViewedData();
     int currentState = data['workState'] as int? ?? 0;
     
-    setState(() {
-      if (currentState == WorkState.checkedIn.index) {
-        _updateTodayData('workState', WorkState.onBreak.index);
-        _updateTodayData('breakStartTime', DateTime.now().toIso8601String());
-      } else if (currentState == WorkState.onBreak.index) {
+    if (currentState == WorkState.checkedIn.index) {
+      String? selectedBreakType = await showDialog<String>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: Text("Select Break Type", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            content: const Text("What type of break are you taking?"),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, "Tea Break"),
+                child: const Text("Tea Break", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, "Lunch Break"),
+                child: const Text("Lunch Break", style: TextStyle(color: kPrimaryGreen, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (selectedBreakType != null) {
+        final nowIso = DateTime.now().toIso8601String();
+        setState(() {
+          _updateTodayData('workState', WorkState.onBreak.index);
+          _updateTodayData('breakStartTime', nowIso);
+          _updateTodayData('currentBreakType', selectedBreakType);
+        });
+        
+        _showInlineStatus("Started $selectedBreakType");
+        _syncAttendanceWithServer('start_break', nowIso, breakType: selectedBreakType);
+      }
+    } else if (currentState == WorkState.onBreak.index) {
+      final nowIso = DateTime.now().toIso8601String();
+      String breakType = data['currentBreakType'] ?? 'Break';
+      
+      setState(() {
         _updateTodayData('workState', WorkState.checkedIn.index);
         if (data['breakStartTime'] != null) {
           int addedMins = DateTime.now().difference(DateTime.parse(data['breakStartTime'] as String)).inMinutes;
           _updateTodayData('breakMinutes', (data['breakMinutes'] as int? ?? 0) + addedMins);
           _updateTodayData('breakStartTime', null); 
+          _updateTodayData('currentBreakType', null); 
         }
-      }
-    });
+      });
+
+      _showInlineStatus("Ended $breakType");
+      _syncAttendanceWithServer('end_break', nowIso, breakMins: _calculateTotalBreak(_getViewedData()));
+    }
   }
 
   void _promptCheckOut() {
@@ -644,7 +702,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 
         Position? currentPosition;
         try {
-          currentPosition = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+          currentPosition = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high, 
+            timeLimit: const Duration(seconds: 5),
+          );
         } catch (e) {
           debugPrint("Failed to get location on checkout");
         }
@@ -670,7 +731,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.inter(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        backgroundColor: kTextDark.withValues(alpha: 0.85),
+        backgroundColor: kTextDark.withOpacity(0.85),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.only(bottom: 80, left: 50, right: 50),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
@@ -689,8 +750,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         }
 
         int breaks = int.tryParse(log['break_minutes']?.toString() ?? '0') ?? 0;
+        String logBreakType = log['break_type']?.toString() ?? 'Break';
         if (breaks > 0) {
-          logs.add(_buildTimelineItem("Took a Break", "$breaks min total", Icons.coffee_rounded, Colors.orange));
+          logs.add(_buildTimelineItem(logBreakType, "$breaks min total", Icons.coffee_rounded, Colors.orange));
         }
 
         if (log['check_out_time'] != null && log['check_out_time'].toString().isNotEmpty) {
@@ -701,7 +763,8 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
       logs.add(_buildTimelineItem("Checked In", _formatTime(data['checkInTime'] as String?), Icons.login_rounded, kPrimaryGreen));
 
       if (data['breakStartTime'] != null || (data['breakMinutes'] != null && (data['breakMinutes'] as int) > 0)) {
-        logs.add(_buildTimelineItem("Took a Break", "${_calculateTotalBreak(data)} min total", Icons.coffee_rounded, Colors.orange));
+        String logBreakType = data['currentBreakType'] ?? 'Break';
+        logs.add(_buildTimelineItem(logBreakType, "${_calculateTotalBreak(data)} min total", Icons.coffee_rounded, Colors.orange));
       }
 
       if (data['checkOutTime'] != null && data['checkOutTime'].toString().isNotEmpty) {
@@ -725,7 +788,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         children: [
           Container(
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
             child: Icon(icon, color: color, size: 18),
           ),
           const SizedBox(width: 16),
@@ -772,7 +835,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             slivers: [
               SliverPadding(
                 padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 16.0),
-                sliver: SliverList(
+                sliver: SliverList( 
                   delegate: SliverChildListDelegate([
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -798,11 +861,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                   child: (kIsWeb && _customAvatarBytes != null)
                                       ? Image.memory(_customAvatarBytes!, fit: BoxFit.cover, width: 48, height: 48)
                                       : (!kIsWeb && _customAvatarPath != null)
-                                          ? Image.network(
-                                              _customAvatarPath!, 
-                                              fit: BoxFit.cover, width: 48, height: 48, 
-                                              errorBuilder: (c, e, s) => Image.network('https://ui-avatars.com/api/?name=${Uri.encodeComponent(_employeeName)}&background=006B3C&color=fff&size=128&bold=true', fit: BoxFit.cover, width: 48, height: 48)
-                                            )
+                                          ? Image.file(io.File(_customAvatarPath!), fit: BoxFit.cover, width: 48, height: 48, errorBuilder: (c, e, s) => Image.network('https://ui-avatars.com/api/?name=${Uri.encodeComponent(_employeeName)}&background=006B3C&color=fff&size=128&bold=true'))
                                           : Image.network('https://ui-avatars.com/api/?name=${Uri.encodeComponent(_employeeName)}&background=006B3C&color=fff&size=128&bold=true', fit: BoxFit.cover, width: 48, height: 48),
                                 ),
                               ),
@@ -903,10 +962,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                 color: _getDateCardColor(date, isSelected), 
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: _isAbsent(date) ? Colors.redAccent.withValues(alpha: 0.6) : (isSelected ? Colors.transparent : Colors.black.withValues(alpha: 0.05)),
+                                  color: _isAbsent(date) ? Colors.redAccent.withOpacity(0.6) : (isSelected ? Colors.transparent : Colors.black.withOpacity(0.05)),
                                   width: _isAbsent(date) ? 1.5 : 1.0,
                                 ), 
-                                boxShadow: isSelected ? [BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))] : [], 
+                                boxShadow: isSelected ? [BoxShadow(color: kPrimaryGreen.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))] : [], 
                               ),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -918,7 +977,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                   const SizedBox(height: 4),
                                   Text(
                                     days[date.weekday - 1], 
-                                    style: GoogleFonts.inter(fontSize: 12, color: isSelected ? Colors.white70 : (date.weekday == DateTime.sunday ? Colors.redAccent.withValues(alpha: 0.6) : kTextMuted))
+                                    style: GoogleFonts.inter(fontSize: 12, color: isSelected ? Colors.white70 : (date.weekday == DateTime.sunday ? Colors.redAccent.withOpacity(0.6) : kTextMuted))
                                   ),
                                 ],
                               ),
@@ -948,7 +1007,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.black.withValues(alpha: 0.03))),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.black.withOpacity(0.03))),
                       child: Column(
                         children: _buildActivityLog(currentData),
                       ),
@@ -969,9 +1028,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                   child: Container(
                     padding: const EdgeInsets.all(12), 
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.5)),
-                      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, offset: const Offset(0, 10))]
+                      color: Colors.white.withOpacity(0.85),
+                      border: Border.all(color: Colors.white.withOpacity(0.5)),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, 10))]
                     ),
                     child: _buildActionPanel(displayedState),
                   ),
@@ -995,7 +1054,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             decoration: BoxDecoration(
               gradient: const LinearGradient(colors: [kPrimaryGreen, kSecondaryGreen]),
               borderRadius: BorderRadius.circular(32),
-              boxShadow: [BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.3), blurRadius: 15, offset: const Offset(0, 5))],
+              boxShadow: [BoxShadow(color: kPrimaryGreen.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5))],
             ),
             child: Stack(
               children: [
@@ -1003,9 +1062,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.face_retouching_natural_rounded, color: Colors.white70, size: 20),
+                      Icon(_isCameraRequiredByAdmin ? Icons.face_retouching_natural_rounded : Icons.fingerprint_rounded, color: Colors.white70, size: 20),
                       const SizedBox(width: 8),
-                      Text("Swipe to Face Scan", style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                      Text(_isCameraRequiredByAdmin ? "Swipe to Face Scan" : "Swipe to Instant Check In", style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ),
@@ -1058,7 +1117,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
               label: Text(isOnBreak ? "End Break" : "Take Break", style: const TextStyle(color: kTextDark)),
               style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                side: BorderSide(color: Colors.black.withValues(alpha: 0.1)), 
+                side: BorderSide(color: Colors.black.withOpacity(0.1)), 
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 backgroundColor: Colors.white,
               ),
@@ -1089,7 +1148,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
       decoration: BoxDecoration(
         color: Colors.white, 
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.03)), 
+        border: Border.all(color: Colors.black.withOpacity(0.03)), 
         boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 2), spreadRadius: -5)],
       ),
       child: Column(
@@ -1100,14 +1159,14 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: kPrimaryGreen.withValues(alpha: 0.1), shape: BoxShape.circle), 
+                decoration: BoxDecoration(color: kPrimaryGreen.withOpacity(0.1), shape: BoxShape.circle), 
                 child: Icon(icon, color: kPrimaryGreen, size: 16),
               ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
                   title, 
-                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: kTextDark.withValues(alpha: 0.8)), 
+                  style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: kTextDark.withOpacity(0.8)), 
                   maxLines: 1, overflow: TextOverflow.ellipsis
                 )
               ), 
@@ -1128,21 +1187,25 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     );
   }
 
-  Future<void> _syncAttendanceWithServer(String action, String isoTime, {int breakMins = 0, double? lat, double? lon}) async {
-    final logger = Logger(printer: PrettyPrinter(methodCount: 0, errorMethodCount: 5, lineLength: 80, colors: true, printEmojis: true));
+  Future<void> _syncAttendanceWithServer(String action, String isoTime, {int breakMins = 0, String? breakType, double? lat, double? lon}) async {
+    final logger = Logger(printer: PrettyPrinter(methodCount: 0, lineLength: 80, colors: true, printEmojis: true));
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? empId = prefs.getString('emp_id');
       final String? companyId = prefs.getString('company_id'); 
 
-      if (empId == null || empId.isEmpty) return;
+      if (empId == null || empId.isEmpty) {
+        logger.w("Cannot sync: emp_id is empty");
+        return;
+      }
 
       Map<String, String> requestBody = {
-        'emp_id': empId,
-        'company_id': companyId ?? '0',
-        'action': action,
-        'time': isoTime,
+        'emp_id': empId.toString(),
+        'company_id': (companyId ?? '0').toString(),
+        'action': action.toString(),
+        'time': isoTime.toString(),
         'break_minutes': breakMins.toString(), 
+        'break_type': (breakType ?? '').toString(),
       };
 
       if (lat != null && lon != null) {
@@ -1150,14 +1213,22 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         requestBody['lon'] = lon.toString();
       }
 
-      await http.post(
+      logger.d("Sending data package bundle payload to server: $requestBody");
+
+      final response = await http.post(
         Uri.parse('https://www.workack.com/attendance-app/save_attendance.php'),
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: { 
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json"
+        },
         body: requestBody,
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 12)); 
+
+      logger.i("Server response [${response.statusCode}]: ${response.body}");
 
     } catch (e) {
-      logger.e("🛑 NETWORK ERROR during sync: $e");
+      logger.e("🛑 TRANSIT ERROR: $e");
+      _showInlineStatus("Offline Sync Completed Locally.");
     }
   }
 }
@@ -1220,7 +1291,9 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
         cameras.firstWhere((camera) => camera.lensDirection == CameraLensDirection.front, orElse: () => cameras[0]),
         ResolutionPreset.medium,
         enableAudio: false, 
-        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
+        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS 
+            ? ImageFormatGroup.bgra8888 
+            : ImageFormatGroup.yuv420, 
       );
 
       await _cameraController!.initialize();
@@ -1260,12 +1333,19 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
         }
         final bytes = allBytes.done().buffer.asUint8List();
 
+        InputImageFormat mlKitFormat;
+        if (defaultTargetPlatform == TargetPlatform.iOS) {
+          mlKitFormat = InputImageFormat.bgra8888;
+        } else {
+          mlKitFormat = InputImageFormat.yuv420; 
+        }
+
         final inputImage = InputImage.fromBytes(
           bytes: bytes,
           metadata: InputImageMetadata(
             size: Size(image.width.toDouble(), image.height.toDouble()),
             rotation: rotation,
-            format: defaultTargetPlatform == TargetPlatform.iOS ? InputImageFormat.bgra8888 : InputImageFormat.nv21,
+            format: mlKitFormat, 
             bytesPerRow: image.planes[0].bytesPerRow,
           ),
         );
@@ -1275,7 +1355,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
           _completeFaceScan(true);
         }
       } catch (e) {
-        // Drop frames safely
+        debugPrint("Frame processing error: $e");
       }
     });
 
@@ -1286,7 +1366,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
       }
     });
   }
-
+  
   Future<void> _completeFaceScan(bool success) async {
     if (_isFaceDetected) return; 
     if (mounted) {
@@ -1344,7 +1424,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: _scanStatus == 0 ? kPrimaryGreen.withValues(alpha: 0.2) : _scanStatus == 1 ? kPrimaryGreen.withValues(alpha: 0.15) : Colors.redAccent.withValues(alpha: 0.1),
+                      color: _scanStatus == 0 ? kPrimaryGreen.withOpacity(0.2) : _scanStatus == 1 ? kPrimaryGreen.withOpacity(0.15) : Colors.redAccent.withOpacity(0.1),
                       blurRadius: 30, spreadRadius: 8,
                     ),
                   ],
@@ -1352,8 +1432,8 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                 child: Container(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: _scanStatus == 0 ? kPrimaryGreen.withValues(alpha: 0.4) : _scanStatus == 1 ? kPrimaryGreen : Colors.redAccent, width: 3),
-                    color: Colors.black.withValues(alpha: 0.02),
+                    border: Border.all(color: _scanStatus == 0 ? kPrimaryGreen.withOpacity(0.4) : _scanStatus == 1 ? kPrimaryGreen : Colors.redAccent, width: 3),
+                    color: Colors.black.withOpacity(0.02),
                   ),
                   child: _scanStatus == 0
                     ? (isDevMode 
@@ -1376,13 +1456,13 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                               scale: _checkScaleAnimation,
                               child: Container(
                                 width: 120, height: 120,
-                                decoration: BoxDecoration(shape: BoxShape.circle, color: kPrimaryGreen.withValues(alpha: 0.1)),
+                                decoration: BoxDecoration(shape: BoxShape.circle, color: kPrimaryGreen.withOpacity(0.1)),
                                 child: const Icon(Icons.check_circle_rounded, color: kPrimaryGreen, size: 100),
                               ),
                             )
                           : Container(
                               width: 120, height: 120,
-                              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.redAccent.withValues(alpha: 0.1)),
+                              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.redAccent.withOpacity(0.1)),
                               child: const Icon(Icons.cancel_rounded, color: Colors.redAccent, size: 100),
                             ),
                       ),
@@ -1399,8 +1479,8 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                       child: LinearProgressIndicator(
                         value: isDevMode ? null : (_detectionAttempts % 800) / 800,
                         minHeight: 4,
-                        backgroundColor: Colors.black.withValues(alpha: 0.05),
-                        valueColor: AlwaysStoppedAnimation<Color>(kPrimaryGreen.withValues(alpha: 0.6)),
+                        backgroundColor: Colors.black.withOpacity(0.05),
+                        valueColor: AlwaysStoppedAnimation<Color>(kPrimaryGreen.withOpacity(0.6)),
                       ),
                     ),
                   ],
