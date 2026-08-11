@@ -9,9 +9,12 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+<<<<<<< HEAD
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
 
+=======
+>>>>>>> 985fc50ecf9ccb41a59fcee29cffdd67beaec999
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <uses-permission android:name="android.permission.USE_FINGERPRINT"/>
 
@@ -51,5 +54,6 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <package android:name="com.android.settings" />
     </queries>
 </manifest>
