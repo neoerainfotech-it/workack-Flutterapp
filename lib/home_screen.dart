@@ -1163,7 +1163,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
 }
 
 // =========================================================================
-// FACE SCAN MODAL (WITH SYSTEM PERMISSIONS ASSURED)
+// FACE SCAN MODAL (FAST FACE PRESENCE DETECTION + HARDENED ROTATION)
 // =========================================================================
 class FaceScanModal extends StatefulWidget {
   const FaceScanModal({super.key});
@@ -1172,15 +1172,17 @@ class FaceScanModal extends StatefulWidget {
 }
 
 class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateMixin {
-  
-  final bool isDevMode = kIsWeb; 
+  final bool isDevMode = kIsWeb;
 
-  int _scanStatus = 0; 
+  int _scanStatus = 0; // 0 = Scanning, 1 = Verified, 2 = Failed
   CameraController? _cameraController;
   FaceDetector? _faceDetector;
   bool _isFaceDetected = false;
   bool _cameraInitialized = false;
+  bool _isProcessingFrame = false;
   int _detectionAttempts = 0;
+  Timer? _timeoutTimer;
+
   late AnimationController _checkAnimController;
   late Animation<double> _checkScaleAnimation;
 
@@ -1191,7 +1193,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
     _checkScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _checkAnimController, curve: Curves.elasticOut),
     );
-    
+
     if (isDevMode) {
       _simulateDevModeScan();
     } else {
@@ -1201,7 +1203,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
 
   Future<void> _simulateDevModeScan() async {
     setState(() => _scanStatus = 0);
-    await Future.delayed(const Duration(seconds: 2)); 
+    await Future.delayed(const Duration(seconds: 2));
     if (mounted) _completeFaceScan(true);
   }
 
@@ -1216,16 +1218,29 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
         return;
       }
 
+      final frontCamera = cameras.firstWhere(
+        (camera) => camera.lensDirection == CameraLensDirection.front, 
+        orElse: () => cameras[0]
+      );
+
       _cameraController = CameraController(
-        cameras.firstWhere((camera) => camera.lensDirection == CameraLensDirection.front, orElse: () => cameras[0]),
+        frontCamera,
         ResolutionPreset.medium,
-        enableAudio: false, 
+        enableAudio: false,
         imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
       );
 
       await _cameraController!.initialize();
+
+      // Configure FaceDetector for fast presence detection
       _faceDetector = FaceDetector(
-        options: FaceDetectorOptions(enableLandmarks: false, enableContours: false, enableClassification: false, enableTracking: false),
+        options: FaceDetectorOptions(
+          performanceMode: FaceDetectorMode.fast,
+          enableLandmarks: false,
+          enableContours: false,
+          enableClassification: false,
+          enableTracking: false,
+        ),
       );
 
       if (!mounted) return;
@@ -1233,26 +1248,51 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
         _scanStatus = 0;
         _cameraInitialized = true;
       });
+      
       _startFaceDetection();
     } catch (e) {
       if (mounted) {
         setState(() => _scanStatus = 2);
-        _showErrorSnackBar("Camera link initialization failed.");
+        _showErrorSnackBar("Camera initialization failed: $e");
       }
     }
   }
 
   void _startFaceDetection() {
-    int frameCount = 0;
+    // Extended timeout to 12 seconds so slower devices have enough time
+    _timeoutTimer?.cancel();
+    _timeoutTimer = Timer(const Duration(seconds: 12), () {
+      if (mounted && !_isFaceDetected && _scanStatus == 0) {
+        setState(() => _scanStatus = 2);
+        try { _cameraController?.stopImageStream(); } catch (_) {}
+      }
+    });
+
     _cameraController?.startImageStream((CameraImage image) async {
-      if (_isFaceDetected || !mounted) return;
-      frameCount++;
-      _detectionAttempts++;
-      if (frameCount % 10 != 0) return;
+      if (_isFaceDetected || _isProcessingFrame || !mounted) return;
       
+      _isProcessingFrame = true;
+      _detectionAttempts++;
+
       try {
         final sensorOrientation = _cameraController!.description.sensorOrientation;
-        final InputImageRotation rotation = InputImageRotationValue.fromRawValue(sensorOrientation) ?? InputImageRotation.rotation90deg;
+        
+        // Handle all Android camera rotations accurately
+        InputImageRotation rotation;
+        switch (sensorOrientation) {
+          case 90:
+            rotation = InputImageRotation.rotation90deg;
+            break;
+          case 180:
+            rotation = InputImageRotation.rotation180deg;
+            break;
+          case 270:
+            rotation = InputImageRotation.rotation270deg;
+            break;
+          default:
+            rotation = InputImageRotation.rotation0deg;
+            break;
+        }
 
         final WriteBuffer allBytes = WriteBuffer();
         for (final Plane plane in image.planes) {
@@ -1269,37 +1309,40 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
             bytesPerRow: image.planes[0].bytesPerRow,
           ),
         );
-        
+
         final faces = await _faceDetector!.processImage(inputImage);
+        
         if (mounted && !_isFaceDetected && faces.isNotEmpty) {
+          _timeoutTimer?.cancel();
           _completeFaceScan(true);
         }
       } catch (e) {
-        // Drop frames safely
-      }
-    });
-
-    Future.delayed(const Duration(seconds: 8), () {
-      if (mounted && !_isFaceDetected && _scanStatus == 0) {
-        setState(() => _scanStatus = 2); 
-        _cameraController?.stopImageStream();
+        // Safe frame drop
+      } finally {
+        _isProcessingFrame = false;
       }
     });
   }
 
   Future<void> _completeFaceScan(bool success) async {
-    if (_isFaceDetected) return; 
+    if (_isFaceDetected) return;
+    _timeoutTimer?.cancel();
+    
     if (mounted) {
-      setState(() { _isFaceDetected = true; _scanStatus = 1; });
+      setState(() { 
+        _isFaceDetected = true; 
+        _scanStatus = 1; 
+      });
       _checkAnimController.forward();
     }
+    
     try {
       await _cameraController?.stopImageStream();
     } catch (e) {
-      debugPrint('Stream halt trace: $e');
-    } 
-    
-    await Future.delayed(const Duration(milliseconds: 1800));
+      debugPrint('Stream stop: $e');
+    }
+
+    await Future.delayed(const Duration(milliseconds: 1200));
     if (mounted) Navigator.pop(context, success);
   }
 
@@ -1310,6 +1353,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
 
   @override
   void dispose() {
+    _timeoutTimer?.cancel();
     _cameraController?.dispose();
     _faceDetector?.close();
     _checkAnimController.dispose();
@@ -1397,7 +1441,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                     ClipRRect(
                       borderRadius: BorderRadius.circular(10),
                       child: LinearProgressIndicator(
-                        value: isDevMode ? null : (_detectionAttempts % 800) / 800,
+                        value: isDevMode ? null : (_detectionAttempts % 100) / 100,
                         minHeight: 4,
                         backgroundColor: Colors.black.withValues(alpha: 0.05),
                         valueColor: AlwaysStoppedAnimation<Color>(kPrimaryGreen.withValues(alpha: 0.6)),
@@ -1410,7 +1454,10 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context, false),
+                    onPressed: () {
+                      _timeoutTimer?.cancel();
+                      Navigator.pop(context, false);
+                    },
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       side: const BorderSide(color: Colors.redAccent),
@@ -1426,6 +1473,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                     onPressed: () {
                       setState(() => _scanStatus = 0);
                       _isFaceDetected = false;
+                      _isProcessingFrame = false;
                       _detectionAttempts = 0;
                       _checkAnimController.reset();
                       if (isDevMode) {

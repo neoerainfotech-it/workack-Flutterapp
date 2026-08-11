@@ -281,15 +281,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // --- ACTIONS ---
   Future<void> _submitToHR() async {
-    setState(() => _isSubmitting = true);
-    await Future.delayed(const Duration(seconds: 2));
+  setState(() => _isSubmitting = true);
+
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final String? companyId = prefs.getString('company_id') ?? '0';
+
+    final response = await http.post(
+      Uri.parse('${ApiConstants.baseUrl}update_profile.php'),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: {
+        'emp_id': _empId,
+        'company_id': companyId,
+        'personal_email': _personalEmailCtrl.text.trim(),
+        'phone_number': _phoneCtrl.text.trim(),
+        'emergency_contact': _emergencyCtrl.text.trim(),
+        'residential_address': _addressCtrl.text.trim(),
+      },
+    ).timeout(const Duration(seconds: 15));
+
     if (!mounted) return;
-    setState(() {
-      _isSubmitting = false;
-      _isEditingPersonal = false;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Update request submitted to HR successfully!", style: GoogleFonts.inter(fontWeight: FontWeight.bold)), backgroundColor: kPrimaryGreen, behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))));
+    final Map<String, dynamic> responseData = json.decode(response.body);
+
+    if (response.statusCode == 200 && responseData['status'] == 'success') {
+      setState(() {
+        _isSubmitting = false;
+        _isEditingPersonal = false;
+      });
+
+      // Refresh the profile data to reflect updated fields in UI memory
+      await _fetchEmployeeProfile();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Contact information updated successfully!",
+            style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: kPrimaryGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      );
+    } else {
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            responseData['message'] ?? 'Failed to update profile details',
+            style: GoogleFonts.inter(fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      );
+    }
+  } on TimeoutException {
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Request timed out. Please check your internet connection."),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Error: $e", style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+    );
   }
+}
 
   Future<void> _updatePassword() async {
     if (_currentPassCtrl.text.isEmpty || _newPassCtrl.text.isEmpty || _confirmPassCtrl.text.isEmpty) {
