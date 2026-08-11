@@ -1,4 +1,4 @@
-import 'package:http/http.dart' as http; 
+import 'package:http/http.dart' as http;
 import 'api_constants.dart';             
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -133,7 +133,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
   int _unreadAnnouncements = 0;
   int _totalAnnouncements = 0; 
 
-  // 1. 🟢 NEW: Admin Corporate Switch Tracker State Variable
+  // Admin Corporate Switch Tracker State Variable
   bool _isCameraRequiredByAdmin = true; 
 
   bool _isAbsent(DateTime date) {
@@ -357,7 +357,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             _officeLat = employeeInfo['office_lat'] != null ? double.tryParse(employeeInfo['office_lat'].toString()) : null;
             _officeLon = employeeInfo['office_lon'] != null ? double.tryParse(employeeInfo['office_lon'].toString()) : null;
 
-            // 2. 🟢 NEW: Parse Corporate Camera Access Requirement Switch from server parameters safely
             _isCameraRequiredByAdmin = (employeeInfo['camera_required'] ?? 1) == 1;
 
             _todayData = (dashboardData['today'] as Map?)?.cast<String, dynamic>() ?? {};
@@ -562,12 +561,9 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         }
       }
 
-      // Geofence check success clearing terminal vectors
       setState(() => _isActionLocked = false); 
 
-      // 3. 🟢 NEW: Admin Verification Pipeline Condition Gate
       if (!_isCameraRequiredByAdmin) {
-        // Admin camera tracking setup is disabled for this user -> Process immediate bypass check-in payload!
         final nowIso = DateTime.now().toIso8601String(); 
         setState(() {
           _updateTodayData('workState', WorkState.checkedIn.index);
@@ -578,7 +574,6 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
         _showInlineStatus("Checked In Successfully!");
         _syncAttendanceWithServer('check_in', nowIso, lat: currentPosition.latitude, lon: currentPosition.longitude);
       } else {
-        // Camera requirement settings active on stable channel -> Route safely straight onto standard Face Scan modal framework
         _startFaceScan(position: currentPosition); 
       }
 
@@ -731,7 +726,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: GoogleFonts.inter(fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-        backgroundColor: kTextDark.withOpacity(0.85),
+        backgroundColor: kTextDark.withValues(alpha: 0.85),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.only(bottom: 80, left: 50, right: 50),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
@@ -962,10 +957,10 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
                                 color: _getDateCardColor(date, isSelected), 
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: _isAbsent(date) ? Colors.redAccent.withOpacity(0.6) : (isSelected ? Colors.transparent : Colors.black.withOpacity(0.05)),
+                                  color: _isAbsent(date) ? Colors.redAccent.withOpacity(0.6) : (isSelected ? Colors.transparent : Colors.black.withValues(alpha: 0.05)),
                                   width: _isAbsent(date) ? 1.5 : 1.0,
                                 ), 
-                                boxShadow: isSelected ? [BoxShadow(color: kPrimaryGreen.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))] : [], 
+                                boxShadow: isSelected ? [BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))] : [], 
                               ),
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1054,7 +1049,7 @@ class _AttendanceDashboardState extends State<AttendanceDashboard> with WidgetsB
             decoration: BoxDecoration(
               gradient: const LinearGradient(colors: [kPrimaryGreen, kSecondaryGreen]),
               borderRadius: BorderRadius.circular(32),
-              boxShadow: [BoxShadow(color: kPrimaryGreen.withOpacity(0.3), blurRadius: 15, offset: const Offset(0, 5))],
+              boxShadow: [BoxShadow(color: kPrimaryGreen.withValues(alpha: 0.3), blurRadius: 15, offset: const Offset(0, 5))],
             ),
             child: Stack(
               children: [
@@ -1297,20 +1292,14 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
       _cameraController = CameraController(
         frontCamera,
         ResolutionPreset.medium,
-<<<<<<< HEAD
-        enableAudio: false,
-        imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.nv21,
-=======
         enableAudio: false, 
         imageFormatGroup: defaultTargetPlatform == TargetPlatform.iOS 
             ? ImageFormatGroup.bgra8888 
             : ImageFormatGroup.yuv420, 
->>>>>>> 985fc50ecf9ccb41a59fcee29cffdd67beaec999
       );
 
       await _cameraController!.initialize();
 
-      // Configure FaceDetector for fast presence detection
       _faceDetector = FaceDetector(
         options: FaceDetectorOptions(
           performanceMode: FaceDetectorMode.fast,
@@ -1337,88 +1326,74 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
   }
 
   void _startFaceDetection() {
-    // Extended timeout to 12 seconds so slower devices have enough time
-    _timeoutTimer?.cancel();
-    _timeoutTimer = Timer(const Duration(seconds: 12), () {
-      if (mounted && !_isFaceDetected && _scanStatus == 0) {
-        setState(() => _scanStatus = 2);
-        try { _cameraController?.stopImageStream(); } catch (_) {}
-      }
-    });
+  _timeoutTimer?.cancel();
+  _timeoutTimer = Timer(const Duration(seconds: 12), () {
+    if (mounted && !_isFaceDetected && _scanStatus == 0) {
+      setState(() => _scanStatus = 2);
+      try { _cameraController?.stopImageStream(); } catch (_) {}
+    }
+  });
 
-    _cameraController?.startImageStream((CameraImage image) async {
-      if (_isFaceDetected || _isProcessingFrame || !mounted) return;
+  _cameraController?.startImageStream((CameraImage image) async {
+    if (_isFaceDetected || _isProcessingFrame || !mounted) return;
+    
+    _isProcessingFrame = true;
+    _detectionAttempts++;
+
+    try {
+      final sensorOrientation = _cameraController!.description.sensorOrientation;
       
-      _isProcessingFrame = true;
-      _detectionAttempts++;
-
-      try {
-        final sensorOrientation = _cameraController!.description.sensorOrientation;
-        
-        // Handle all Android camera rotations accurately
-        InputImageRotation rotation;
-        switch (sensorOrientation) {
-          case 90:
-            rotation = InputImageRotation.rotation90deg;
-            break;
-          case 180:
-            rotation = InputImageRotation.rotation180deg;
-            break;
-          case 270:
-            rotation = InputImageRotation.rotation270deg;
-            break;
-          default:
-            rotation = InputImageRotation.rotation0deg;
-            break;
-        }
-
-        final WriteBuffer allBytes = WriteBuffer();
-        for (final Plane plane in image.planes) {
-          allBytes.putUint8List(plane.bytes);
-        }
-        final bytes = allBytes.done().buffer.asUint8List();
-
-        InputImageFormat mlKitFormat;
-        if (defaultTargetPlatform == TargetPlatform.iOS) {
-          mlKitFormat = InputImageFormat.bgra8888;
-        } else {
-          mlKitFormat = InputImageFormat.yuv420; 
-        }
-
-        final inputImage = InputImage.fromBytes(
-          bytes: bytes,
-          metadata: InputImageMetadata(
-            size: Size(image.width.toDouble(), image.height.toDouble()),
-            rotation: rotation,
-            format: mlKitFormat, 
-            bytesPerRow: image.planes[0].bytesPerRow,
-          ),
-        );
-
-        final faces = await _faceDetector!.processImage(inputImage);
-        
-        if (mounted && !_isFaceDetected && faces.isNotEmpty) {
-          _timeoutTimer?.cancel();
-          _completeFaceScan(true);
-        }
-      } catch (e) {
-<<<<<<< HEAD
-        // Safe frame drop
-      } finally {
-        _isProcessingFrame = false;
-=======
-        debugPrint("Frame processing error: $e");
+      InputImageRotation rotation;
+      switch (sensorOrientation) {
+        case 90:
+          rotation = InputImageRotation.rotation90deg;
+          break;
+        case 180:
+          rotation = InputImageRotation.rotation180deg;
+          break;
+        case 270:
+          rotation = InputImageRotation.rotation270deg;
+          break;
+        default:
+          rotation = InputImageRotation.rotation0deg;
+          break;
       }
-    });
 
-    Future.delayed(const Duration(seconds: 8), () {
-      if (mounted && !_isFaceDetected && _scanStatus == 0) {
-        setState(() => _scanStatus = 2); 
-        _cameraController?.stopImageStream();
->>>>>>> 985fc50ecf9ccb41a59fcee29cffdd67beaec999
+      // Concatenate all planes into a single byte buffer safely
+      final WriteBuffer allBytes = WriteBuffer();
+      for (final Plane plane in image.planes) {
+        allBytes.putUint8List(plane.bytes);
       }
-    });
-  }
+      final bytes = allBytes.done().buffer.asUint8List();
+
+      // Fix format resolution for Android (nv21) & iOS (bgra8888)
+      final InputImageFormat format = defaultTargetPlatform == TargetPlatform.iOS
+          ? InputImageFormat.bgra8888
+          : (InputImageFormatValue.fromRawValue(image.format.raw) ?? InputImageFormat.nv21);
+
+      final inputImage = InputImage.fromBytes(
+        bytes: bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: format, 
+          bytesPerRow: image.planes[0].bytesPerRow,
+        ),
+      );
+
+      final faces = await _faceDetector!.processImage(inputImage);
+      
+      if (mounted && !_isFaceDetected && faces.isNotEmpty) {
+        _timeoutTimer?.cancel();
+        _completeFaceScan(true);
+      }
+    } catch (e) {
+      debugPrint("Frame processing error: $e");
+    } finally {
+      _isProcessingFrame = false;
+    }
+  });
+}
   
   Future<void> _completeFaceScan(bool success) async {
     if (_isFaceDetected) return;
@@ -1539,7 +1514,7 @@ class _FaceScanModalState extends State<FaceScanModal> with TickerProviderStateM
                       child: LinearProgressIndicator(
                         value: isDevMode ? null : (_detectionAttempts % 100) / 100,
                         minHeight: 4,
-                        backgroundColor: Colors.black.withOpacity(0.05),
+                        backgroundColor: Colors.black.withValues(alpha: 0.05),
                         valueColor: AlwaysStoppedAnimation<Color>(kPrimaryGreen.withOpacity(0.6)),
                       ),
                     ),
